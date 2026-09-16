@@ -1,0 +1,6 @@
+# Automatisch erzeugtes Backup - wird bei jedem Lauf von
+# Update-SubstitutionPalettes.ps1 ueberschrieben, daher kein Versionsstand.
+SubstitutionPalettes_BACKUP.xml
+
+# Automatisch erzeugte freigestellte ("_FREI") Bildkopien.
+IMAGE_frei/
