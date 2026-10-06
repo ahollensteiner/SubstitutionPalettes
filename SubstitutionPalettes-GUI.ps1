@@ -48,8 +48,8 @@ $EnginePath = Join-Path $PSScriptRoot "Update-SubstitutionPalettes.ps1"
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "SubstitutionPalettes - Bilder aktualisieren"
 $form.StartPosition = "CenterScreen"
-$form.Size = New-Object System.Drawing.Size(700, 560)
-$form.MinimumSize = New-Object System.Drawing.Size(560, 400)
+$form.ClientSize = New-Object System.Drawing.Size(760, 640)
+$form.MinimumSize = New-Object System.Drawing.Size(640, 520)
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 
 $lblStep1 = New-Object System.Windows.Forms.Label
@@ -60,13 +60,13 @@ $lblStep1.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows
 
 $txtPath = New-Object System.Windows.Forms.TextBox
 $txtPath.Location = New-Object System.Drawing.Point(15, 40)
-$txtPath.Size = New-Object System.Drawing.Size(540, 24)
+$txtPath.Size = New-Object System.Drawing.Size(600, 24)
 $txtPath.ReadOnly = $true
 $txtPath.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
 
 $btnBrowse = New-Object System.Windows.Forms.Button
 $btnBrowse.Text = "Durchsuchen..."
-$btnBrowse.Location = New-Object System.Drawing.Point(565, 38)
+$btnBrowse.Location = New-Object System.Drawing.Point(625, 38)
 $btnBrowse.Size = New-Object System.Drawing.Size(110, 28)
 $btnBrowse.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
 
@@ -105,7 +105,7 @@ $lblLog.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.F
 
 $txtLog = New-Object System.Windows.Forms.TextBox
 $txtLog.Location = New-Object System.Drawing.Point(15, 202)
-$txtLog.Size = New-Object System.Drawing.Size(660, 300)
+$txtLog.Size = New-Object System.Drawing.Size(720, 370)
 $txtLog.Multiline = $true
 $txtLog.ReadOnly = $true
 $txtLog.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
@@ -114,7 +114,7 @@ $txtLog.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.F
 
 $btnClose = New-Object System.Windows.Forms.Button
 $btnClose.Text = "Schliessen"
-$btnClose.Location = New-Object System.Drawing.Point(565, 510)
+$btnClose.Location = New-Object System.Drawing.Point(625, 595)
 $btnClose.Size = New-Object System.Drawing.Size(110, 30)
 $btnClose.Anchor = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Right
 
