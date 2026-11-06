@@ -4,3 +4,6 @@ SubstitutionPalettes_BACKUP.xml
 
 # Automatisch erzeugte freigestellte ("_FREI") Bildkopien.
 IMAGE_frei/
+
+# Konfigurationsdatei: aendert sich stark und wird bewusst nicht versioniert.
+SubstitutionPalettes.xml
