@@ -1,8 +1,20 @@
-<#
+﻿<#
 .SYNOPSIS
-    Pflegt die <ImageData>-Eintraege in SubstitutionPalettes.xml.
+    Pflegt die <ImageData>-Eintraege in SubstitutionPalettes.xml - mit
+    Benutzeroberflaeche (Fenster) oder wahlweise per Kommandozeile.
 
 .DESCRIPTION
+    BEDIENUNG:
+      - Ohne Parameter startet ein Fenster: SubstitutionPalettes.xml per
+        Datei-Dialog auswaehlen, "Start" klicken, Ergebnis im Protokoll lesen.
+        Es wird geprueft, dass die gewaehlte Datei EXAKT "SubstitutionPalettes.xml"
+        heisst (Gross-/Kleinschreibung egal); sonst erscheint eine Meldung.
+        PNG-Bilder, Backup ("..._BACKUP.xml") und "IMAGE_frei" liegen im
+        Ordner der gewaehlten XML-Datei.
+      - Mit -XmlPath laeuft die Verarbeitung ohne Fenster (Kommandozeile,
+        Automatisierung); alle weiteren Parameter wirken nur in diesem Modus
+        bzw. als Voreinstellung (siehe unten).
+
     Ablauf pro Durchlauf:
 
     1) BACKUP: Die Ziel-XML wird zuerst 1:1 als "<Name>_BACKUP.xml" im selben
@@ -71,8 +83,8 @@
     wenn -XmlPath nicht auf eine Datei zeigt, die exakt "SubstitutionPalettes.xml"
     heisst (Gross-/Kleinschreibung wird ignoriert). Das verhindert, dass das
     Skript versehentlich auf einer falschen/fremden XML-Datei laeuft - egal ob
-    ueber die Kommandozeile oder ueber das GUI-Tool (SubstitutionPalettes-GUI.ps1)
-    aufgerufen.
+    ueber die Kommandozeile oder ueber das Fenster aufgerufen. Im Fenster wird
+    schon bei der Dateiauswahl geprueft und eine Meldung angezeigt.
 
     Freistellungs-Algorithmus (Schritt 2): einfacher, verlustfreier Chroma-Key.
     Es wird die Farbe des Eckpixels (0,0) als Hintergrundfarbe angenommen.
@@ -92,10 +104,11 @@
     Formatierung/Einrueckung der grossen XML-Datei erhalten bleibt.
 
 .PARAMETER XmlPath
-    Pfad zur SubstitutionPalettes.xml. Standard: Datei im selben Ordner wie dieses Skript.
+    Pfad zur SubstitutionPalettes.xml. Wenn angegeben, laeuft die Verarbeitung
+    ohne Fenster; ohne Angabe startet das Fenster.
 
 .PARAMETER ImageDir
-    Ordner mit den PNG-Bildern (fuer Schritt 2 und 4). Standard: Ordner dieses Skripts.
+    Ordner mit den PNG-Bildern (fuer Schritt 2 und 4). Standard: Ordner der XML-Datei.
 
 .PARAMETER FreiDir
     Zielordner fuer die freigestellten "_FREI"-Kopien. Standard: Unterordner
@@ -145,14 +158,16 @@
 
 .EXAMPLE
     .\Update-SubstitutionPalettes.ps1
+    Startet das Fenster.
 
 .EXAMPLE
-    .\Update-SubstitutionPalettes.ps1 -ImageDir "C:\Bilder\Neue"
+    .\Update-SubstitutionPalettes.ps1 -XmlPath "D:\Projekt\SubstitutionPalettes.xml"
+    Verarbeitet die Datei ohne Fenster.
 #>
 param(
-    [string]$XmlPath = (Join-Path $PSScriptRoot "SubstitutionPalettes.xml"),
-    [string]$ImageDir = $PSScriptRoot,
-    [string]$FreiDir = (Join-Path $ImageDir "IMAGE_frei"),
+    [string]$XmlPath,
+    [string]$ImageDir,
+    [string]$FreiDir,
     [switch]$SkipBackup,
     [switch]$SkipFreistellen,
     [int]$Tolerance = 10,
@@ -167,42 +182,11 @@ param(
 )
 
 Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
 $textImageFontStyleValue = [System.Drawing.FontStyle]::$TextImageFontStyle
 
-if (-not (Test-Path $XmlPath)) {
-    throw "XML-Datei nicht gefunden: $XmlPath"
-}
-
-# Sicherheitscheck: Das Skript darf nur auf einer Datei arbeiten, die exakt
-# "SubstitutionPalettes.xml" heisst (Gross-/Kleinschreibung wird ignoriert,
-# wie unter Windows ueblich) - unabhaengig davon, ob der Pfad manuell per
-# Kommandozeile oder ueber das GUI-Tool uebergeben wurde.
-$expectedFileName = "SubstitutionPalettes.xml"
-$actualFileName = [System.IO.Path]::GetFileName($XmlPath)
-if (-not [string]::Equals($actualFileName, $expectedFileName, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Ungueltiger Dateiname: '$actualFileName'. Dieses Skript darf nur mit einer Datei namens '$expectedFileName' verwendet werden."
-}
-
 # ---------------------------------------------------------------------------
-# Schritt 1: Backup der XML (ueberschreibt eine vorhandene Sicherungskopie)
-# ---------------------------------------------------------------------------
-if (-not $SkipBackup) {
-    $xmlItem = Get-Item -LiteralPath $XmlPath
-    $backupPath = Join-Path $xmlItem.DirectoryName ($xmlItem.BaseName + "_BACKUP" + $xmlItem.Extension)
-    Copy-Item -LiteralPath $XmlPath -Destination $backupPath -Force
-    Write-Host "Backup erstellt/ueberschrieben: $backupPath"
-}
-
-$utf8Bom = New-Object System.Text.UTF8Encoding($true)
-$content = [System.IO.File]::ReadAllText($XmlPath, $utf8Bom)
-
-$images = @(Get-ChildItem -Path $ImageDir -Filter *.png -File -ErrorAction SilentlyContinue)
-if (-not $images) {
-    Write-Warning "Keine PNG-Dateien in '$ImageDir' gefunden (Schritt 2 und 4 werden uebersprungen)."
-}
-
-# ---------------------------------------------------------------------------
-# Schritt 2: Freigestellte ("_FREI") Kopien mit transparentem Hintergrund
+# Hilfsfunktion Schritt 2: freigestellte ("_FREI") Kopie mit transparentem Hintergrund
 # ---------------------------------------------------------------------------
 function ConvertTo-TransparentPng {
     param(
@@ -247,18 +231,6 @@ function ConvertTo-TransparentPng {
     }
     finally {
         $src.Dispose()
-    }
-}
-
-if (-not $SkipFreistellen -and $images) {
-    if (-not (Test-Path $FreiDir)) {
-        New-Item -ItemType Directory -Path $FreiDir -Force | Out-Null
-    }
-    foreach ($img in $images) {
-        $freiName = [System.IO.Path]::GetFileNameWithoutExtension($img.Name) + "_FREI.png"
-        $freiPath = Join-Path $FreiDir $freiName
-        $bg = ConvertTo-TransparentPng -SourcePath $img.FullName -DestPath $freiPath -Tolerance $Tolerance
-        Write-Host "Freigestellt: $($img.Name) -> $freiPath (Hintergrundfarbe erkannt: R=$($bg.R) G=$($bg.G) B=$($bg.B), Toleranz=$Tolerance)"
     }
 }
 
@@ -307,7 +279,7 @@ function Set-ClassImageData {
 }
 
 # ---------------------------------------------------------------------------
-# Schritt 3: PipeLines-Textbilder (Klassenname als Text, kein PNG erforderlich)
+# Hilfsfunktion Schritt 3: Textbild fuer einen Klassennamen (Base64-PNG)
 # ---------------------------------------------------------------------------
 function New-ClassNameImageBase64 {
     param(
@@ -393,94 +365,328 @@ function New-ClassNameImageBase64 {
     }
 }
 
-$pltAdded = 0
-$pltUpdated = 0
-$pltUnchanged = 0
-$pipeLineClassNames = @()
+# ---------------------------------------------------------------------------
+# Verarbeitung (Schritte 1-4). Meldungen gehen per Write-Host/Write-Warning
+# aus; das GUI faengt sie per *>&1 ab und zeigt sie im Protokoll an.
+# ---------------------------------------------------------------------------
+function Invoke-SubstitutionUpdate {
+    param(
+        [string]$XmlPath,
+        [string]$ImageDir,
+        [string]$FreiDir
+    )
 
-$pipeLineBlockPattern = '(?s)(<BaseClass name="PipeLines">)(.*?)(</BaseClass>)'
-$pipeLineBlockMatch = [regex]::Match($content, $pipeLineBlockPattern)
+    if (-not $ImageDir) { $ImageDir = Split-Path -Path $XmlPath -Parent }
+    if (-not $FreiDir) { $FreiDir = Join-Path $ImageDir "IMAGE_frei" }
 
-if (-not $pipeLineBlockMatch.Success) {
-    Write-Warning "BaseClass 'PipeLines' nicht in der XML gefunden - Schritt 3 (Textbilder) uebersprungen."
-}
-else {
-    $pipeLineClassNames = [regex]::Matches($pipeLineBlockMatch.Groups[2].Value, '<Class\s+name="([^"]+)"') |
-        ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
+    if (-not (Test-Path $XmlPath)) {
+        throw "XML-Datei nicht gefunden: $XmlPath"
+    }
 
-    if (-not $SkipPipeLineTextImages) {
-        $body = $pipeLineBlockMatch.Groups[2].Value
-        foreach ($cn in $pipeLineClassNames) {
-            if ($PipeLineExcluded -contains $cn) {
-                Write-Host "PipeLines: '$cn' ist ausgeschlossen - bleibt unveraendert."
-                continue
+    # Sicherheitscheck: Das Skript darf nur auf einer Datei arbeiten, die exakt
+    # "SubstitutionPalettes.xml" heisst (Gross-/Kleinschreibung wird ignoriert,
+    # wie unter Windows ueblich) - unabhaengig davon, ob der Pfad manuell per
+    # Kommandozeile oder ueber das GUI-Tool uebergeben wurde.
+    $expectedFileName = "SubstitutionPalettes.xml"
+    $actualFileName = [System.IO.Path]::GetFileName($XmlPath)
+    if (-not [string]::Equals($actualFileName, $expectedFileName, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Ungueltiger Dateiname: '$actualFileName'. Dieses Skript darf nur mit einer Datei namens '$expectedFileName' verwendet werden."
+    }
+
+    # ---------------------------------------------------------------------------
+    # Schritt 1: Backup der XML (ueberschreibt eine vorhandene Sicherungskopie)
+    # ---------------------------------------------------------------------------
+    if (-not $SkipBackup) {
+        $xmlItem = Get-Item -LiteralPath $XmlPath
+        $backupPath = Join-Path $xmlItem.DirectoryName ($xmlItem.BaseName + "_BACKUP" + $xmlItem.Extension)
+        Copy-Item -LiteralPath $XmlPath -Destination $backupPath -Force
+        Write-Host "Backup erstellt/ueberschrieben: $backupPath"
+    }
+
+    $utf8Bom = New-Object System.Text.UTF8Encoding($true)
+    $content = [System.IO.File]::ReadAllText($XmlPath, $utf8Bom)
+
+    $images = @(Get-ChildItem -Path $ImageDir -Filter *.png -File -ErrorAction SilentlyContinue)
+    if (-not $images) {
+        Write-Warning "Keine PNG-Dateien in '$ImageDir' gefunden (Schritt 2 und 4 werden uebersprungen)."
+    }
+
+
+    # -----------------------------------------------------------------------
+    # Schritt 2: Freigestellte ("_FREI") Kopien mit transparentem Hintergrund
+    # -----------------------------------------------------------------------
+    if (-not $SkipFreistellen -and $images) {
+        if (-not (Test-Path $FreiDir)) {
+            New-Item -ItemType Directory -Path $FreiDir -Force | Out-Null
+        }
+        foreach ($img in $images) {
+            $freiName = [System.IO.Path]::GetFileNameWithoutExtension($img.Name) + "_FREI.png"
+            $freiPath = Join-Path $FreiDir $freiName
+            $bg = ConvertTo-TransparentPng -SourcePath $img.FullName -DestPath $freiPath -Tolerance $Tolerance
+            Write-Host "Freigestellt: $($img.Name) -> $freiPath (Hintergrundfarbe erkannt: R=$($bg.R) G=$($bg.G) B=$($bg.B), Toleranz=$Tolerance)"
+        }
+    }
+
+    $pltAdded = 0
+    $pltUpdated = 0
+    $pltUnchanged = 0
+    $pipeLineClassNames = @()
+
+    $pipeLineBlockPattern = '(?s)(<BaseClass name="PipeLines">)(.*?)(</BaseClass>)'
+    $pipeLineBlockMatch = [regex]::Match($content, $pipeLineBlockPattern)
+
+    if (-not $pipeLineBlockMatch.Success) {
+        Write-Warning "BaseClass 'PipeLines' nicht in der XML gefunden - Schritt 3 (Textbilder) uebersprungen."
+    }
+    else {
+        $pipeLineClassNames = [regex]::Matches($pipeLineBlockMatch.Groups[2].Value, '<Class\s+name="([^"]+)"') |
+            ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique
+
+        if (-not $SkipPipeLineTextImages) {
+            $body = $pipeLineBlockMatch.Groups[2].Value
+            foreach ($cn in $pipeLineClassNames) {
+                if ($PipeLineExcluded -contains $cn) {
+                    Write-Host "PipeLines: '$cn' ist ausgeschlossen - bleibt unveraendert."
+                    continue
+                }
+                $b64 = New-ClassNameImageBase64 -Name $cn -Size $TextImageSize -MarginPx $TextImageMarginPx -FontFamilyName $TextImageFont -FontStyle $textImageFontStyleValue -CalibrationText $TextImageCalibrationText
+                $result = Set-ClassImageData -Text $body -ClassName $cn -Base64 $b64
+                $body = $result.Text
+                switch ($result.Status) {
+                    'Added' { Write-Host "PipeLines-Textbild hinzugefuegt: $cn"; $pltAdded++ }
+                    'Updated' { Write-Host "PipeLines-Textbild aktualisiert: $cn"; $pltUpdated++ }
+                    'Unchanged' { Write-Host "PipeLines-Textbild unveraendert: $cn"; $pltUnchanged++ }
+                    'NotFound' { Write-Warning "PipeLines: Class '$cn' unerwartet nicht gefunden - uebersprungen." }
+                }
             }
-            $b64 = New-ClassNameImageBase64 -Name $cn -Size $TextImageSize -MarginPx $TextImageMarginPx -FontFamilyName $TextImageFont -FontStyle $textImageFontStyleValue -CalibrationText $TextImageCalibrationText
-            $result = Set-ClassImageData -Text $body -ClassName $cn -Base64 $b64
-            $body = $result.Text
-            switch ($result.Status) {
-                'Added' { Write-Host "PipeLines-Textbild hinzugefuegt: $cn"; $pltAdded++ }
-                'Updated' { Write-Host "PipeLines-Textbild aktualisiert: $cn"; $pltUpdated++ }
-                'Unchanged' { Write-Host "PipeLines-Textbild unveraendert: $cn"; $pltUnchanged++ }
-                'NotFound' { Write-Warning "PipeLines: Class '$cn' unerwartet nicht gefunden - uebersprungen." }
+            $content = $content.Substring(0, $pipeLineBlockMatch.Index) +
+            $pipeLineBlockMatch.Groups[1].Value + $body + $pipeLineBlockMatch.Groups[3].Value +
+            $content.Substring($pipeLineBlockMatch.Index + $pipeLineBlockMatch.Length)
+        }
+    }
+
+    # ---------------------------------------------------------------------------
+    # Schritt 4: Base64 aus den ORIGINAL-PNGs in die XML einbetten (alle anderen
+    # BaseClasses; PipeLines-Klassen werden hier bewusst ignoriert, siehe oben).
+    # ---------------------------------------------------------------------------
+
+    # Alle in der XML vorhandenen Klassennamen einsammeln - nur zur Diagnose
+    # (z.B. um bei Gross-/Kleinschreibungs-Abweichungen einen Hinweis zu geben).
+    # Wird NICHT zum Schreiben verwendet.
+    $allClassNames = [regex]::Matches($content, '<Class\s+name="([^"]+)"') |
+        ForEach-Object { $_.Groups[1].Value } |
+        Select-Object -Unique
+
+    $added = 0
+    $updated = 0
+    $unchanged = 0
+    $warnings = 0
+
+    foreach ($img in $images) {
+        $expectedName = [System.IO.Path]::GetFileNameWithoutExtension($img.Name)
+
+        if ($pipeLineClassNames -contains $expectedName) {
+            Write-Host "Ignoriert: $($img.Name) (Class '$expectedName' gehoert zu PipeLines und wird ausschliesslich per Textbild verwaltet, siehe Schritt 3)"
+            continue
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($img.FullName)
+        $base64 = [Convert]::ToBase64String($bytes)
+
+        $result = Set-ClassImageData -Text $content -ClassName $expectedName -Base64 $base64
+        $content = $result.Text
+
+        switch ($result.Status) {
+            'Added' { Write-Host "Hinzugefuegt: $expectedName (neues ImageData eingefuegt)"; $added++ }
+            'Updated' { Write-Host "Aktualisiert: $expectedName (bestehendes ImageData ersetzt)"; $updated++ }
+            'Unchanged' { Write-Host "Unveraendert: $expectedName (ImageData bereits aktuell)"; $unchanged++ }
+            'NotFound' {
+                $ciMatch = $allClassNames | Where-Object { $_.ToLowerInvariant() -eq $expectedName.ToLowerInvariant() } | Select-Object -First 1
+                if ($ciMatch) {
+                    Write-Warning "PNG '$($img.Name)' -> Name '$expectedName' stimmt NICHT exakt (Gross-/Kleinschreibung) mit dem XML-Klassennamen '$ciMatch' ueberein. Datei uebersprungen - Klassenname in der XML wurde NICHT geaendert. Bitte PNG oder Class-Namen angleichen."
+                }
+                else {
+                    Write-Warning "PNG '$($img.Name)' -> Kein <Class name=`"$expectedName`"> Element in der XML gefunden. Datei uebersprungen - es wurde kein neuer Eintrag angelegt und kein bestehender Name geaendert."
+                }
+                $warnings++
             }
         }
-        $content = $content.Substring(0, $pipeLineBlockMatch.Index) +
-        $pipeLineBlockMatch.Groups[1].Value + $body + $pipeLineBlockMatch.Groups[3].Value +
-        $content.Substring($pipeLineBlockMatch.Index + $pipeLineBlockMatch.Length)
     }
+
+    [System.IO.File]::WriteAllText($XmlPath, $content, $utf8Bom)
+
+    Write-Host ""
+    Write-Host "PipeLines-Textbilder: Hinzugefuegt: $pltAdded, Aktualisiert: $pltUpdated, Unveraendert: $pltUnchanged"
+    Write-Host "PNG-Einbettung (uebrige BaseClasses): Hinzugefuegt: $added, Aktualisiert: $updated, Unveraendert: $unchanged, Warnungen (uebersprungen): $warnings"
 }
 
 # ---------------------------------------------------------------------------
-# Schritt 4: Base64 aus den ORIGINAL-PNGs in die XML einbetten (alle anderen
-# BaseClasses; PipeLines-Klassen werden hier bewusst ignoriert, siehe oben).
+# Start: mit -XmlPath ohne Oberflaeche (Kommandozeile), sonst Fenster (GUI)
 # ---------------------------------------------------------------------------
-
-# Alle in der XML vorhandenen Klassennamen einsammeln - nur zur Diagnose
-# (z.B. um bei Gross-/Kleinschreibungs-Abweichungen einen Hinweis zu geben).
-# Wird NICHT zum Schreiben verwendet.
-$allClassNames = [regex]::Matches($content, '<Class\s+name="([^"]+)"') |
-    ForEach-Object { $_.Groups[1].Value } |
-    Select-Object -Unique
-
-$added = 0
-$updated = 0
-$unchanged = 0
-$warnings = 0
-
-foreach ($img in $images) {
-    $expectedName = [System.IO.Path]::GetFileNameWithoutExtension($img.Name)
-
-    if ($pipeLineClassNames -contains $expectedName) {
-        Write-Host "Ignoriert: $($img.Name) (Class '$expectedName' gehoert zu PipeLines und wird ausschliesslich per Textbild verwaltet, siehe Schritt 3)"
-        continue
-    }
-
-    $bytes = [System.IO.File]::ReadAllBytes($img.FullName)
-    $base64 = [Convert]::ToBase64String($bytes)
-
-    $result = Set-ClassImageData -Text $content -ClassName $expectedName -Base64 $base64
-    $content = $result.Text
-
-    switch ($result.Status) {
-        'Added' { Write-Host "Hinzugefuegt: $expectedName (neues ImageData eingefuegt)"; $added++ }
-        'Updated' { Write-Host "Aktualisiert: $expectedName (bestehendes ImageData ersetzt)"; $updated++ }
-        'Unchanged' { Write-Host "Unveraendert: $expectedName (ImageData bereits aktuell)"; $unchanged++ }
-        'NotFound' {
-            $ciMatch = $allClassNames | Where-Object { $_.ToLowerInvariant() -eq $expectedName.ToLowerInvariant() } | Select-Object -First 1
-            if ($ciMatch) {
-                Write-Warning "PNG '$($img.Name)' -> Name '$expectedName' stimmt NICHT exakt (Gross-/Kleinschreibung) mit dem XML-Klassennamen '$ciMatch' ueberein. Datei uebersprungen - Klassenname in der XML wurde NICHT geaendert. Bitte PNG oder Class-Namen angleichen."
-            }
-            else {
-                Write-Warning "PNG '$($img.Name)' -> Kein <Class name=`"$expectedName`"> Element in der XML gefunden. Datei uebersprungen - es wurde kein neuer Eintrag angelegt und kein bestehender Name geaendert."
-            }
-            $warnings++
-        }
-    }
+if ($XmlPath) {
+    Invoke-SubstitutionUpdate -XmlPath $XmlPath -ImageDir $ImageDir -FreiDir $FreiDir
+    return
 }
 
-[System.IO.File]::WriteAllText($XmlPath, $content, $utf8Bom)
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$ExpectedFileName = "SubstitutionPalettes.xml"
 
-Write-Host ""
-Write-Host "PipeLines-Textbilder: Hinzugefuegt: $pltAdded, Aktualisiert: $pltUpdated, Unveraendert: $pltUnchanged"
-Write-Host "PNG-Einbettung (uebrige BaseClasses): Hinzugefuegt: $added, Aktualisiert: $updated, Unveraendert: $unchanged, Warnungen (uebersprungen): $warnings"
+# ---------------------------------------------------------------------------
+# Fenster und Steuerelemente aufbauen
+# ---------------------------------------------------------------------------
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "SubstitutionPalettes - Bilder aktualisieren"
+$form.StartPosition = "CenterScreen"
+$form.ClientSize = New-Object System.Drawing.Size(760, 640)
+$form.MinimumSize = New-Object System.Drawing.Size(640, 520)
+$form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+
+$lblStep1 = New-Object System.Windows.Forms.Label
+$lblStep1.Text = "1. SubstitutionPalettes.xml auswaehlen:"
+$lblStep1.Location = New-Object System.Drawing.Point(15, 15)
+$lblStep1.AutoSize = $true
+$lblStep1.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left
+
+$txtPath = New-Object System.Windows.Forms.TextBox
+$txtPath.Location = New-Object System.Drawing.Point(15, 40)
+$txtPath.Size = New-Object System.Drawing.Size(600, 24)
+$txtPath.ReadOnly = $true
+$txtPath.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+
+$btnBrowse = New-Object System.Windows.Forms.Button
+$btnBrowse.Text = "Durchsuchen..."
+$btnBrowse.Location = New-Object System.Drawing.Point(625, 38)
+$btnBrowse.Size = New-Object System.Drawing.Size(110, 28)
+$btnBrowse.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
+
+$lblFolderInfo = New-Object System.Windows.Forms.Label
+$lblFolderInfo.Text = "Es wurde noch keine Datei ausgewaehlt."
+$lblFolderInfo.Location = New-Object System.Drawing.Point(15, 70)
+$lblFolderInfo.AutoSize = $true
+$lblFolderInfo.ForeColor = [System.Drawing.Color]::DimGray
+$lblFolderInfo.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left
+
+$lblStep2 = New-Object System.Windows.Forms.Label
+$lblStep2.Text = "2. Verarbeitung starten:"
+$lblStep2.Location = New-Object System.Drawing.Point(15, 105)
+$lblStep2.AutoSize = $true
+$lblStep2.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left
+
+$btnStart = New-Object System.Windows.Forms.Button
+$btnStart.Text = "Start"
+$btnStart.Location = New-Object System.Drawing.Point(15, 130)
+$btnStart.Size = New-Object System.Drawing.Size(160, 36)
+$btnStart.Enabled = $false
+$btnStart.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left
+
+$lblStatus = New-Object System.Windows.Forms.Label
+$lblStatus.Text = "Bereit."
+$lblStatus.Location = New-Object System.Drawing.Point(190, 138)
+$lblStatus.AutoSize = $true
+$lblStatus.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$lblStatus.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left
+
+$lblLog = New-Object System.Windows.Forms.Label
+$lblLog.Text = "Protokoll:"
+$lblLog.Location = New-Object System.Drawing.Point(15, 178)
+$lblLog.AutoSize = $true
+$lblLog.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Left
+
+$txtLog = New-Object System.Windows.Forms.TextBox
+$txtLog.Location = New-Object System.Drawing.Point(15, 202)
+$txtLog.Size = New-Object System.Drawing.Size(720, 370)
+$txtLog.Multiline = $true
+$txtLog.ReadOnly = $true
+$txtLog.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+$txtLog.Font = New-Object System.Drawing.Font("Consolas", 9)
+$txtLog.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Left -bor [System.Windows.Forms.AnchorStyles]::Right
+
+$btnClose = New-Object System.Windows.Forms.Button
+$btnClose.Text = "Schliessen"
+$btnClose.Location = New-Object System.Drawing.Point(625, 595)
+$btnClose.Size = New-Object System.Drawing.Size(110, 30)
+$btnClose.Anchor = [System.Windows.Forms.AnchorStyles]::Bottom -bor [System.Windows.Forms.AnchorStyles]::Right
+
+$form.Controls.AddRange(@($lblStep1, $txtPath, $btnBrowse, $lblFolderInfo, $lblStep2, $btnStart, $lblStatus, $lblLog, $txtLog, $btnClose))
+
+# ---------------------------------------------------------------------------
+# Logik
+# ---------------------------------------------------------------------------
+$script:SelectedXmlPath = $null
+
+$btnBrowse.Add_Click({
+        $dlg = New-Object System.Windows.Forms.OpenFileDialog
+        $dlg.Title = "SubstitutionPalettes.xml auswaehlen"
+        $dlg.Filter = "SubstitutionPalettes.xml|SubstitutionPalettes.xml|Alle XML-Dateien (*.xml)|*.xml|Alle Dateien (*.*)|*.*"
+        $dlg.FileName = $ExpectedFileName
+        $dlg.CheckFileExists = $true
+
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $chosenName = [System.IO.Path]::GetFileName($dlg.FileName)
+            if (-not [string]::Equals($chosenName, $ExpectedFileName, [System.StringComparison]::OrdinalIgnoreCase)) {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Die gewaehlte Datei heisst '$chosenName'.`n`nDieses Tool funktioniert ausschliesslich mit einer Datei namens '$ExpectedFileName'. Bitte waehlen Sie die richtige Konfigurationsdatei aus.",
+                    "Falscher Dateiname",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Warning
+                ) | Out-Null
+                return
+            }
+
+            $script:SelectedXmlPath = $dlg.FileName
+            $txtPath.Text = $dlg.FileName
+            $lblFolderInfo.Text = "Ordner (hier werden auch Backup, PNG-Bilder und IMAGE_frei erwartet/abgelegt): " + (Split-Path $dlg.FileName -Parent)
+            $btnStart.Enabled = $true
+            $lblStatus.Text = "Bereit."
+            $lblStatus.ForeColor = [System.Drawing.Color]::Black
+        }
+    })
+
+$btnStart.Add_Click({
+        if (-not $script:SelectedXmlPath) { return }
+
+        $btnStart.Enabled = $false
+        $btnBrowse.Enabled = $false
+        $txtLog.Clear()
+        $lblStatus.Text = "Laeuft..."
+        $lblStatus.ForeColor = [System.Drawing.Color]::DarkOrange
+        $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+        [System.Windows.Forms.Application]::DoEvents()
+
+        $imageDir = Split-Path $script:SelectedXmlPath -Parent
+
+        try {
+            $output = Invoke-SubstitutionUpdate -XmlPath $script:SelectedXmlPath -ImageDir $imageDir *>&1
+            foreach ($line in $output) {
+                $txtLog.AppendText("$line`r`n")
+            }
+            $lblStatus.Text = "Fertig."
+            $lblStatus.ForeColor = [System.Drawing.Color]::ForestGreen
+            [System.Windows.Forms.MessageBox]::Show(
+                "Verarbeitung abgeschlossen. Details siehe Protokoll.",
+                "Fertig",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            ) | Out-Null
+        }
+        catch {
+            $txtLog.AppendText("FEHLER: $($_.Exception.Message)`r`n")
+            $lblStatus.Text = "Fehler."
+            $lblStatus.ForeColor = [System.Drawing.Color]::Red
+            [System.Windows.Forms.MessageBox]::Show(
+                $_.Exception.Message,
+                "Fehler bei der Verarbeitung",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            ) | Out-Null
+        }
+        finally {
+            $form.Cursor = [System.Windows.Forms.Cursors]::Default
+            $btnStart.Enabled = $true
+            $btnBrowse.Enabled = $true
+        }
+    })
+
+$btnClose.Add_Click({ $form.Close() })
+
+[System.Windows.Forms.Application]::Run($form)
