@@ -620,6 +620,7 @@ $btnBrowse.Add_Click({
         $dlg.Filter = "SubstitutionPalettes.xml|SubstitutionPalettes.xml|Alle XML-Dateien (*.xml)|*.xml|Alle Dateien (*.*)|*.*"
         $dlg.FileName = $ExpectedFileName
         $dlg.CheckFileExists = $true
+        if ($PSScriptRoot -and (Test-Path -LiteralPath $PSScriptRoot)) { $dlg.InitialDirectory = $PSScriptRoot }
 
         if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
             $chosenName = [System.IO.Path]::GetFileName($dlg.FileName)
