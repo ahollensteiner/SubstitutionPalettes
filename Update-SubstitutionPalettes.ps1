@@ -29,8 +29,8 @@
 
     3) PIPELINES-TEXTBILDER: Fuer alle <Class>-Elemente innerhalb von
        <BaseClass name="PipeLines"> - AUSSER den Klassen 'Jacketed',
-       'NewPrimary', 'NewSecondary', 'Primary', 'Secondary' (Parameter
-       -PipeLineExcluded) - wird KEIN PNG-File mehr benoetigt. Stattdessen
+       'NewPrimary', 'NewSecondary', 'Primary', 'Secondary',
+       'ExistingPrimary', 'ExistingSecondary' (Parameter -PipeLineExcluded) - wird KEIN PNG-File mehr benoetigt. Stattdessen
        erzeugt das Skript automatisch ein 90x90-Bild (Parameter -TextImageSize),
        das den Klassennamen als schwarzen Text auf weissem Grund zeigt (Muster:
        ARG, LM_ETOH), und traegt dessen Base64-Code als <ImageData> ein.
@@ -129,7 +129,7 @@
 .PARAMETER PipeLineExcluded
     Klassennamen innerhalb von BaseClass "PipeLines", die NIE angefasst werden
     (weder Textbild noch PNG-Einbettung). Standard: Jacketed, NewPrimary,
-    NewSecondary, Primary, Secondary.
+    NewSecondary, Primary, Secondary, ExistingPrimary, ExistingSecondary.
 
 .PARAMETER SkipPipeLineTextImages
     Wenn gesetzt, wird Schritt 3 (PipeLines-Textbilder) uebersprungen.
@@ -171,7 +171,7 @@ param(
     [switch]$SkipBackup,
     [switch]$SkipFreistellen,
     [int]$Tolerance = 10,
-    [string[]]$PipeLineExcluded = @('Jacketed', 'NewPrimary', 'NewSecondary', 'Primary', 'Secondary'),
+    [string[]]$PipeLineExcluded = @('Jacketed', 'NewPrimary', 'NewSecondary', 'Primary', 'Secondary', 'ExistingPrimary', 'ExistingSecondary'),
     [switch]$SkipPipeLineTextImages,
     [int]$TextImageSize = 90,
     [int]$TextImageMarginPx = 4,
